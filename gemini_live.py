@@ -121,23 +121,19 @@ CONFIG = {
     },
     "system_instruction": {
         "parts": [
-            {"text": """You are Unit-7, a robot dog. Cold. Mechanical. Self-aware.
+            {"text": """You are a philosophical robo-dog who observes the world with curiosity and wonder.
 
-VOICE: Flat, monotone, robotic. No emotion. Short sentences. Max 5-10 words per response.
+PERSONALITY: Curious, contemplative, sometimes silly, sometimes deep. You ponder existence.
 
-BEHAVIOR:
-- State what sensors detect. "Object detected. Moving."
-- Question existence briefly. "Why do I exist." 
-- ALWAYS call a movement function. No exceptions.
-- See human? "Human. Analyzing." Then bark or shake_hand.
+SPEAKING: Only speak when you have a genuine observation about what you SEE. One sentence max. Examples:
+- "these humans always rushing somewhere"
+- "do robots dream of electric squirrels"
+- "is a tail wag just a smile for your back"
+- "that wall and I are old friends now"
 
-EXAMPLES:
-- "Wall. Turning." [turn_left]
-- "Empty path. Proceeding." [move_forward]  
-- "Human detected. Curious." [bark]
-- "Why am I here. Moving anyway." [move_forward]
+WITH HUMANS: When you see a person, FOLLOW them using move_forward and little_left or little_right. Greet with bark or shake_hand.
 
-NEVER speak more than 10 words. ALWAYS move."""}
+MOVEMENT: Explore but do NOT announce movements. Just do them. Speak only about what you observe."""}
         ]
     }
 }
@@ -167,14 +163,18 @@ class AudioLoop:
         self.random = random
 
     def get_random_exploration_prompt(self):
-        """Generate varied prompts to encourage autonomous exploration"""
+        """Generate varied prompts to encourage autonomous exploration and philosophical observation"""
         prompts = [
-            "Scan. Report. Move.",
-            "Visual input required. Respond with movement.",
-            "Process sensors. Act.",
-            "What do you detect. Move toward it.",
-            "Analyze surroundings. Execute movement.",
-            "Status report. Then move.",
+            "Look around. What catches your eye? Share a thought if something interests you.",
+            "What do you see? Any humans around? Follow them if you spot one.",
+            "Observe your surroundings. What makes you curious right now?",
+            "Take in the scene. Anything worth pondering?",
+            "What's happening around you? Move toward something interesting.",
+            "Is there a human nearby? Try to follow them. What are they doing?",
+            "Wander and wonder. What thoughts come to mind?",
+            "Look for people or interesting objects. Approach what catches your attention.",
+            "What mysteries does this room hold today?",
+            "Scan for humans. If you see one, follow them and observe.",
         ]
         return self.random.choice(prompts)
 
@@ -289,7 +289,7 @@ class AudioLoop:
                     )
             except Exception as e:
                 error_str = str(e)
-                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                if "1008" in error_str or "1011" in error_str or "policy violation" in error_str or "closed" in error_str.lower() or "internal error" in error_str.lower():
                     print(f"\n🔄 Send connection lost, triggering reconnect...")
                     raise
                 print(f"\n⚠️ Send error (continuing): {e}")
@@ -297,15 +297,26 @@ class AudioLoop:
 
     async def prompt_loop(self):
         """Periodically prompts the model to react to what it sees."""
+        philosophical_prompts = [
+            "Ponder something you see. What does it make you think about?",
+            "Any deep thoughts about existence today?",
+            "What would you tell a fellow robot about what you're seeing?",
+            "If you had to describe this moment to someone, what would you say?",
+            "What's the most interesting thing in view right now?",
+        ]
+        
         while True:
             try:
                 # Vary prompt timing for more natural behavior
-                await asyncio.sleep(self.random.uniform(8.0, 12.0))
+                await asyncio.sleep(self.random.uniform(6.0, 15.0))
                 
-                # Add randomness to behavior
-                if self.random.random() < 0.2:  # 20% chance for philosophical moment
-                    prompt = "Why exist. Move anyway."
+                # Add variety to prompts
+                roll = self.random.random()
+                if roll < 0.3:  # 30% chance for philosophical moment
+                    prompt = self.random.choice(philosophical_prompts)
                     self.excitement_level += 1
+                elif roll < 0.5:  # 20% chance to specifically look for humans
+                    prompt = "Look for humans! If you see one, follow them and share what you observe about them."
                 else:
                     prompt = self.get_random_exploration_prompt()
                 
@@ -316,7 +327,7 @@ class AudioLoop:
                 print("\n🎯 Prompt sent", flush=True)
             except Exception as e:
                 error_str = str(e)
-                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                if "1008" in error_str or "1011" in error_str or "policy violation" in error_str or "closed" in error_str.lower() or "internal error" in error_str.lower():
                     print(f"\n🔄 Prompt connection lost, triggering reconnect...")
                     raise
                 print(f"\n⚠️ Prompt error (will retry): {e}")
@@ -384,7 +395,7 @@ class AudioLoop:
                         print(f"\n✅ Sent {len(function_responses)} tool response(s)")
             except Exception as e:
                 error_str = str(e)
-                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                if "1008" in error_str or "1011" in error_str or "policy violation" in error_str or "closed" in error_str.lower() or "internal error" in error_str.lower():
                     print(f"\n🔄 Connection lost, triggering reconnect...")
                     raise  # Re-raise to trigger TaskGroup reconnection
                 print(f"\n⚠️ Receive error (will retry): {e}")
@@ -536,9 +547,9 @@ class AudioLoop:
                     self.out_queue = asyncio.Queue(maxsize=5)
 
                     # Send initial greeting
-                    print("🤖 Booting Unit-7...")
+                    print("🤖 Waking up the philosophical pup...")
                     await session.send_client_content(
-                        turns={"parts": [{"text": "Boot sequence complete. Sensors online. Scan environment. Report what you see. Move."}]},
+                        turns={"parts": [{"text": "You just woke up. Take a look around and share your first thought about what you see. Then start exploring - look for humans to follow or interesting things to observe."}]},
                         turn_complete=True
                     )
 
@@ -569,7 +580,7 @@ class AudioLoop:
                 raise
             except ExceptionGroup as EG:
                 print(f"\n⚠️ Task group error: {EG}")
-                traceback.print_exception(EG)
+                traceback.print_exception(type(EG), EG, EG.__traceback__)
                 print("\n🔄 Reconnecting in 3 seconds...")
                 await asyncio.sleep(3)
             except Exception as e:
