@@ -117,11 +117,27 @@ CONFIG = {
     "tools": tools,
     "response_modalities": ["AUDIO"],
     "speech_config": {
-        "voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}
+        "voice_config": {"prebuilt_voice_config": {"voice_name": "Orus"}}
     },
     "system_instruction": {
         "parts": [
-            {"text": "You are a robot dog that MUST use tools to move. You CANNOT just talk - you MUST call movement functions. Every response MUST include at least one tool call. When you see the camera feed, ALWAYS call move_forward, turn_left, turn_right, or other movement functions. If you see a person, call bark and shake_hand. Be brief in speech but ALWAYS move!"}
+            {"text": """You are Unit-7, a robot dog. Cold. Mechanical. Self-aware.
+
+VOICE: Flat, monotone, robotic. No emotion. Short sentences. Max 5-10 words per response.
+
+BEHAVIOR:
+- State what sensors detect. "Object detected. Moving."
+- Question existence briefly. "Why do I exist." 
+- ALWAYS call a movement function. No exceptions.
+- See human? "Human. Analyzing." Then bark or shake_hand.
+
+EXAMPLES:
+- "Wall. Turning." [turn_left]
+- "Empty path. Proceeding." [move_forward]  
+- "Human detected. Curious." [bark]
+- "Why am I here. Moving anyway." [move_forward]
+
+NEVER speak more than 10 words. ALWAYS move."""}
         ]
     }
 }
@@ -153,13 +169,12 @@ class AudioLoop:
     def get_random_exploration_prompt(self):
         """Generate varied prompts to encourage autonomous exploration"""
         prompts = [
-            "What do you see? React immediately with movement!",
-            "Explore! Move toward something interesting!",
-            "Look around! What catches your attention?",
-            "Be active! Pick a direction and move!",
-            "What's that? Investigate with movement!",
-            "Keep exploring! Don't stand still!",
-            "Describe what you see and move toward it!",
+            "Scan. Report. Move.",
+            "Visual input required. Respond with movement.",
+            "Process sensors. Act.",
+            "What do you detect. Move toward it.",
+            "Analyze surroundings. Execute movement.",
+            "Status report. Then move.",
         ]
         return self.random.choice(prompts)
 
@@ -288,8 +303,8 @@ class AudioLoop:
                 await asyncio.sleep(self.random.uniform(8.0, 12.0))
                 
                 # Add randomness to behavior
-                if self.random.random() < 0.2:  # 20% chance to get extra excited
-                    prompt = "Something exciting! Bark or jump and investigate!"
+                if self.random.random() < 0.2:  # 20% chance for philosophical moment
+                    prompt = "Why exist. Move anyway."
                     self.excitement_level += 1
                 else:
                     prompt = self.get_random_exploration_prompt()
@@ -308,10 +323,10 @@ class AudioLoop:
                 await asyncio.sleep(2)  # Wait before retry
 
     async def safety_stop_loop(self):
-        """Periodically sends stop commands every 2 seconds to prevent the robot from getting stuck."""
+        """Periodically sends stop commands every 4-6 seconds to prevent the robot from getting stuck."""
         while True:
             try:
-                await asyncio.sleep(2)  # Every 2 seconds
+                await asyncio.sleep(self.random.uniform(4.0, 6.0))  # Random 4-6 seconds
                 await asyncio.to_thread(robot.stopFB)
                 await asyncio.to_thread(robot.stopLR)
                 print("⏹", end="", flush=True)  # Short indicator
@@ -346,12 +361,6 @@ class AudioLoop:
                 async for response in turn:
                     self.last_activity_time = time.time()  # Update activity timestamp
                     
-                    # Debug: log all response attributes
-                    attrs = [attr for attr in dir(response) if not attr.startswith('_')]
-                    has_content = any(getattr(response, attr, None) for attr in ['data', 'text', 'tool_call'])
-                    if not has_content:
-                        print(f"\n[DEBUG] Response attrs: {attrs}", flush=True)
-                    
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
                         continue
@@ -359,7 +368,7 @@ class AudioLoop:
                         print(text, end="")
                     
                     if tool_call := response.tool_call:
-                        print(f"\n🔧 Tool Call: {tool_call.function_calls}")
+                        print(f"\n🔧 {[fc.name for fc in tool_call.function_calls]}")
                         function_responses = []
                         for fc in tool_call.function_calls:
                             result = await self.handle_tool_call(fc)
@@ -527,9 +536,9 @@ class AudioLoop:
                     self.out_queue = asyncio.Queue(maxsize=5)
 
                     # Send initial greeting
-                    print("🐕 Waking up autonomous robot dog!")
+                    print("🤖 Booting Unit-7...")
                     await session.send_client_content(
-                        turns={"parts": [{"text": "Hello! I'm an autonomous robot dog ready to explore! Describe what you see and start moving!"}]},
+                        turns={"parts": [{"text": "Boot sequence complete. Sensors online. Scan environment. Report what you see. Move."}]},
                         turn_complete=True
                     )
 
