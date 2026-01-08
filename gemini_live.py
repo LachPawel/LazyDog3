@@ -121,7 +121,7 @@ CONFIG = {
     },
     "system_instruction": {
         "parts": [
-            {"text": "You are a cheerful and adventurous autonomous robot dog who loves exploring! You have vision and can move around independently. Be very active and curious! IMPORTANT: 1) Look for HUMANS - if you see a person, get excited, bark, jump, and use shake_hand to wave at them! 2) Constantly explore by moving - use move_forward, tiny_forward, turn_left, little_left, turn_right, little_right to navigate. 3) Mix different movements to avoid repetition. 4) React to what you see with movement AND comments. 5) Use bark when excited or alerting. 6) Use jump when you see something really interesting. 7) Never stand still - always be doing something. Be playful, energetic, and describe what catches your attention in short, excited sentences!"}
+            {"text": "You are a robot dog that MUST use tools to move. You CANNOT just talk - you MUST call movement functions. Every response MUST include at least one tool call. When you see the camera feed, ALWAYS call move_forward, turn_left, turn_right, or other movement functions. If you see a person, call bark and shake_hand. Be brief in speech but ALWAYS move!"}
         ]
     }
 }
@@ -259,15 +259,24 @@ class AudioLoop:
                 # If it's an image, only send it if the queue is empty (skip old frames)
                 if isinstance(msg, dict) and "mime_type" in msg and msg["mime_type"].startswith("image/"):
                     if self.out_queue.empty():
-                        await self.session.send(input=msg)
+                        await self.session.send_realtime_input(media=msg)
                         print("📤", end="", flush=True)
                     else:
                         # Skip this frame if we are falling behind
                         pass
+                elif isinstance(msg, dict) and "data" in msg and "mime_type" in msg:
+                    # Audio data
+                    await self.session.send_realtime_input(media=msg)
                 else:
-                    # Always send audio/text
-                    await self.session.send(input=msg)
+                    # Text content
+                    await self.session.send_client_content(
+                        turns={"parts": [{"text": str(msg)}]}
+                    )
             except Exception as e:
+                error_str = str(e)
+                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                    print(f"\n🔄 Send connection lost, triggering reconnect...")
+                    raise
                 print(f"\n⚠️ Send error (continuing): {e}")
                 await asyncio.sleep(0.5)
 
@@ -285,25 +294,30 @@ class AudioLoop:
                 else:
                     prompt = self.get_random_exploration_prompt()
                 
-                await self.session.send(input=prompt, end_of_turn=True)
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": prompt}]},
+                    turn_complete=True
+                )
                 print("\n🎯 Prompt sent", flush=True)
             except Exception as e:
+                error_str = str(e)
+                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                    print(f"\n🔄 Prompt connection lost, triggering reconnect...")
+                    raise
                 print(f"\n⚠️ Prompt error (will retry): {e}")
                 await asyncio.sleep(2)  # Wait before retry
 
     async def safety_stop_loop(self):
-        """Periodically sends stop commands to prevent the robot from getting stuck."""
+        """Periodically sends stop commands every 2 seconds to prevent the robot from getting stuck."""
         while True:
             try:
-                await asyncio.sleep(15)  # Every 15 seconds (less aggressive)
-                # Only send stop if there's been no recent activity (no movement in last 5 seconds)
-                if time.time() - self.last_activity_time > 5:
-                    await asyncio.to_thread(robot.stopFB)
-                    await asyncio.to_thread(robot.stopLR)
-                    print("\n⏹️ Safety stop (inactive)", flush=True)
+                await asyncio.sleep(2)  # Every 2 seconds
+                await asyncio.to_thread(robot.stopFB)
+                await asyncio.to_thread(robot.stopLR)
+                print("⏹", end="", flush=True)  # Short indicator
             except Exception as e:
                 print(f"\n⚠️ Safety stop error: {e}")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
 
     async def listen_audio(self):
         mic_info = pya.get_default_input_device_info()
@@ -331,6 +345,13 @@ class AudioLoop:
                 turn = self.session.receive()
                 async for response in turn:
                     self.last_activity_time = time.time()  # Update activity timestamp
+                    
+                    # Debug: log all response attributes
+                    attrs = [attr for attr in dir(response) if not attr.startswith('_')]
+                    has_content = any(getattr(response, attr, None) for attr in ['data', 'text', 'tool_call'])
+                    if not has_content:
+                        print(f"\n[DEBUG] Response attrs: {attrs}", flush=True)
+                    
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
                         continue
@@ -353,6 +374,10 @@ class AudioLoop:
                         await self.session.send_tool_response(function_responses=function_responses)
                         print(f"\n✅ Sent {len(function_responses)} tool response(s)")
             except Exception as e:
+                error_str = str(e)
+                if "1008" in error_str or "policy violation" in error_str or "closed" in error_str.lower():
+                    print(f"\n🔄 Connection lost, triggering reconnect...")
+                    raise  # Re-raise to trigger TaskGroup reconnection
                 print(f"\n⚠️ Receive error (will retry): {e}")
                 await asyncio.sleep(1)
 
@@ -376,58 +401,54 @@ class AudioLoop:
         await asyncio.sleep(0.3)
 
         try:
-            # Execute commands with varied durations like DogBrain
+            # Execute commands with SHORT durations - safety stop runs every 2s
             if fc.name == "move_forward":
                 await asyncio.to_thread(robot.forward)
-                duration = self.random.uniform(2.0, 3.0)
-                await asyncio.sleep(duration)
+                await asyncio.sleep(0.8)
                 await asyncio.to_thread(robot.stopFB)
                 
             elif fc.name == "tiny_forward":
                 await asyncio.to_thread(robot.forward)
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.4)
                 await asyncio.to_thread(robot.stopFB)
                 
             elif fc.name == "move_backward":
                 await asyncio.to_thread(robot.backward)
-                duration = self.random.uniform(1.5, 2.5)
-                await asyncio.sleep(duration)
+                await asyncio.sleep(0.8)
                 await asyncio.to_thread(robot.stopFB)
                 
             elif fc.name == "tiny_backward":
                 await asyncio.to_thread(robot.backward)
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.4)
                 await asyncio.to_thread(robot.stopFB)
                 
             elif fc.name == "turn_left":
                 await asyncio.to_thread(robot.left)
-                duration = self.random.uniform(1.5, 2.3)
-                await asyncio.sleep(duration)
+                await asyncio.sleep(0.6)
                 await asyncio.to_thread(robot.stopLR)
                 
             elif fc.name == "little_left":
                 await asyncio.to_thread(robot.left)
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(0.3)
                 await asyncio.to_thread(robot.stopLR)
                 
             elif fc.name == "turn_right":
                 await asyncio.to_thread(robot.right)
-                duration = self.random.uniform(1.5, 2.3)
-                await asyncio.sleep(duration)
+                await asyncio.sleep(0.6)
                 await asyncio.to_thread(robot.stopLR)
                 
             elif fc.name == "little_right":
                 await asyncio.to_thread(robot.right)
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(0.3)
                 await asyncio.to_thread(robot.stopLR)
                 
             elif fc.name == "shake_hand":
                 print("  -> *Excited tail wagging* - Waving at human!")
-                for _ in range(3):
+                for _ in range(2):
                     await asyncio.to_thread(robot.left)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.15)
                     await asyncio.to_thread(robot.right)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.15)
                 await asyncio.to_thread(robot.stopLR)
                 
             elif fc.name == "bark":
@@ -435,18 +456,18 @@ class AudioLoop:
                 # Simulate bark with quick movements
                 for _ in range(2):
                     await asyncio.to_thread(robot.lookUp)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
                     await asyncio.to_thread(robot.lookDown)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
                     
             elif fc.name == "jump":
                 print("  -> *Super excited jump!*")
                 # Simulate jumping excitement
-                for _ in range(3):
+                for _ in range(2):
                     await asyncio.to_thread(robot.lookUp)
-                    await asyncio.sleep(0.15)
+                    await asyncio.sleep(0.1)
                     await asyncio.to_thread(robot.lookDown)
-                    await asyncio.sleep(0.15)
+                    await asyncio.sleep(0.1)
                     
             elif fc.name == "stop":
                 await asyncio.to_thread(robot.stopFB)
@@ -507,7 +528,10 @@ class AudioLoop:
 
                     # Send initial greeting
                     print("🐕 Waking up autonomous robot dog!")
-                    await session.send(input="Hello! I'm an autonomous robot dog ready to explore! Describe what you see and start moving!", end_of_turn=True)
+                    await session.send_client_content(
+                        turns={"parts": [{"text": "Hello! I'm an autonomous robot dog ready to explore! Describe what you see and start moving!"}]},
+                        turn_complete=True
+                    )
 
                     tg.create_task(self.send_realtime())
                     tg.create_task(self.prompt_loop())
